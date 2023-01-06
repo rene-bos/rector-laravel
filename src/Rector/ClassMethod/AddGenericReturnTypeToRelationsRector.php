@@ -16,20 +16,15 @@ use PHPStan\PhpDocParser\Ast\Type\GenericTypeNode;
 use PHPStan\Type\Constant\ConstantStringType;
 use PHPStan\Type\Generic\GenericClassStringType;
 use PHPStan\Type\ObjectType;
+use Rector\BetterPhpDocParser\PhpDocInfo\PhpDocInfo;
 use Rector\BetterPhpDocParser\ValueObject\Type\FullyQualifiedIdentifierTypeNode;
 use Rector\Core\Rector\AbstractRector;
-use Rector\NodeTypeResolver\TypeComparator\TypeComparator;
 use Symplify\RuleDocGenerator\ValueObject\CodeSample\CodeSample;
 use Symplify\RuleDocGenerator\ValueObject\RuleDefinition;
 
 /** @see \RectorLaravel\Tests\Rector\ClassMethod\AddGenericReturnTypeToRelationsRector\AddGenericReturnTypeToRelationsRectorTest */
 class AddGenericReturnTypeToRelationsRector extends AbstractRector
 {
-    public function __construct(
-        private readonly TypeComparator $typeComparator
-    ) {
-    }
-
     public function getRuleDefinition(): RuleDefinition
     {
         return new RuleDefinition(
@@ -106,18 +101,18 @@ CODE_SAMPLE
             return null;
         }
 
-        $phpDocInfo = $this->phpDocInfoFactory->createFromNodeOrEmpty($node);
+        $phpDocInfo = $this->phpDocInfoFactory->createFromNode($node);
+        if (! $phpDocInfo instanceof PhpDocInfo) {
+            return null;
+        }
 
         // Don't update an existing return type if it differs from the native return type (thus the one without generics).
         // E.g. we only add generics to an existing return type, but don't change the type itself.
+        // Only works if the type in the PHPDoc is fully qualified.
         if (
-            $phpDocInfo->getReturnTagValue() !== null &&
-            ! $this->typeComparator->arePhpParserAndPhpStanPhpDocTypesEqual(
-                $methodReturnType,
-                $phpDocInfo->getReturnTagValue()
-                    ->type,
-                $node
-            )
+            $node->getDocComment() !== null &&
+            $phpDocInfo->hasByName('return') &&
+            !$phpDocInfo->getReturnType()->equals(new ObjectType($methodReturnTypeName))
         ) {
             return null;
         }
@@ -149,11 +144,13 @@ CODE_SAMPLE
         );
 
         // Update or add return tag
-        if ($phpDocInfo->getReturnTagValue() !== null) {
-            $phpDocInfo->getReturnTagValue()
-                ->type = $genericTypeNode;
+        if ($phpDocInfo->hasByName('return')) {
+            $phpDocInfo->getReturnTagValue()->type = $genericTypeNode;
         } else {
-            $phpDocInfo->addTagValueNode(new ReturnTagValueNode($genericTypeNode, ''));
+            $phpDocInfo->addTagValueNode(new ReturnTagValueNode(
+                $genericTypeNode,
+                ''
+            ));
         }
 
         return $node;
